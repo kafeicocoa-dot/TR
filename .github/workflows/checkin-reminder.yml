@@ -1,0 +1,63 @@
+name: TrendRadar Check-in Reminder
+
+on:
+  schedule:
+    # 每天北京时间 09:00 检查一次，只有每 6 天才真正发送提醒
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send WeCom check-in reminder
+        env:
+          WEWORK_WEBHOOK_URL: ${{ secrets.WEWORK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEWORK_WEBHOOK_URL" ]; then
+            echo "WEWORK_WEBHOOK_URL is not set"
+            exit 1
+          fi
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            START_DATE="2026-05-29"
+            today=$(date -u +%F)
+            start_ts=$(date -u -d "$START_DATE" +%s)
+            today_ts=$(date -u -d "$today" +%s)
+            diff_days=$(( (today_ts - start_ts) / 86400 ))
+
+            if [ $(( diff_days % 6 )) -ne 0 ]; then
+              echo "Not reminder day. Days since start: $diff_days"
+              exit 0
+            fi
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          url = os.environ["WEWORK_WEBHOOK_URL"]
+          content = """TrendRadar 签到提醒
+
+今天建议去 GitHub 点一次 Check In，保持云端定时推送继续运行。
+
+https://github.com/kafeicocoa-dot/TR/actions/workflows/clean-crawler.yml
+
+进入后点击 Run workflow，分支选择 master。"""
+
+          data = json.dumps({
+              "msgtype": "text",
+              "text": {"content": content}
+          }, ensure_ascii=False).encode("utf-8")
+
+          req = urllib.request.Request(
+              url,
+              data=data,
+              headers={"Content-Type": "application/json"}
+          )
+
+          with urllib.request.urlopen(req, timeout=20) as res:
+              print(res.read().decode("utf-8"))
+          PY
